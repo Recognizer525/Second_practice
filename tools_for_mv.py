@@ -153,7 +153,7 @@ def L(Y):
 # Расчет вариационной нижней границы
 def VLB(Y, Sigma):
     Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
-    r = np.corrcoef(Y_obs[:,0], Y_obs[:,1])[0][1]
+    r = Sigma[0][1]/(np.sqrt(Sigma[1][1]*Sigma[0][0]))
     return (0.5+L(Y)+np.log(np.sqrt(2*np.pi)*np.sqrt(1-r*r)*np.sqrt(Sigma[1,1])+1e-10))*(len(Y)-len(Y_obs))
 
 def rand_params(Y):
