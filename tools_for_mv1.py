@@ -80,7 +80,7 @@ def MNAR(arr,threshold,order):
     return a
 
 # Заполнение средним
-def Mean_fill(Y):
+def mean_fill(Y):
     Y_ = deepcopy(Y)
     Y_obs = np.delete(Y_, [np.any(i) for i in np.isnan(Y_)], axis=0)
     m = np.mean(Y_obs[:,1])
@@ -90,7 +90,7 @@ def Mean_fill(Y):
     return Y_ 
 
 # Заполнение по коэффициентам линейной регрессии
-def LR_fill(Y):
+def lr_fill(Y):
     Y_ = deepcopy(Y)
     Y_obs = np.delete(Y_, [np.any(i) for i in np.isnan(Y_)], axis=0)
     reg = linear_model.LinearRegression()
@@ -101,7 +101,7 @@ def LR_fill(Y):
     return Y_
 
 # Заполнение с использованием коэффициентов линейной регрессии с добавлением гауссовского шума
-def SLR_fill(Y):
+def slr_fill(Y):
     Y_ = deepcopy(Y)
     Y_obs = np.delete(Y_, [np.any(i) for i in np.isnan(Y_)], axis=0)
     reg = linear_model.LinearRegression()
@@ -111,13 +111,6 @@ def SLR_fill(Y):
         if np.isnan(Y_[i,1]):
             Y_[i,1] = gaussian_noise(reg.coef_*Y_[i,0]+reg.intercept_, mu=0, std=sigma)
     return Y_
-
-# Реализация EM-алгоритма для заполнения пропусков
-def initEM(Y):
-    Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
-    mu1, mu2 = np.mean(Y[:,0]), np.mean(Y_obs[:,1])
-    s1, s2, s12 = np.mean(Y[:,0]**2)-mu1**2, np.mean(Y_obs[:,1]**2)-mu2**2, np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2
-    return np.array([mu1, mu2]), np.array([[s1, s12], [s12, s2]])
 
 def Estep(Y,mu,Sigma):
     sigma_22_1 = Sigma[1,1]-(Sigma[0,1]**2)/Sigma[0,0]
@@ -151,7 +144,8 @@ def L(Y):
 
 # Расчет вариационной нижней границы
 def VLB(Y, Sigma, K):
-    r = Sigma[0][1]/(np.sqrt(Sigma[1][1]*Sigma[0][0]))
+    r = Sigma[0][1]/(np.sqrt(Sigma[1][1]*Sigma[0][0])+1e-10)
+    print(f"L(Y)={L(Y)},r={r},s1={Sigma[0][0]},s12={Sigma[0][1]},s2={Sigma[1][1]}")
     return (0.5+L(Y)+np.log(np.sqrt(2*np.pi)*np.sqrt(1-r*r)*np.sqrt(Sigma[1,1])+1e-10))*K
 
 # Генерация начальных сулчайных значений параметров
@@ -184,8 +178,7 @@ def EM(Y, rtol=1e-3, max_iter=20, restarts=3):
                 loss_prev = loss
             print(f'Step: {i} ', f'Loss {loss:.2f}\n')
             if curr_rel_loss!=None and curr_rel_loss < rtol:
-                break
-            
+                break    
         if best_loss!=None:
             if loss>best_loss:
                 best_loss, best_mu, best_sigma = loss, mu, sigma
@@ -194,7 +187,5 @@ def EM(Y, rtol=1e-3, max_iter=20, restarts=3):
     Y_final = deepcopy(Y)
     for i in range(len(Y_final)):
         if np.isnan(Y_final[i,1]):
-            beta_21_1 = best_sigma[0,1]/best_sigma[0,0]
-            beta_20_1 = best_mu[1]-beta_21_1*best_mu[0]
-            Y_final[i,1] = beta_20_1+beta_21_1*Y_final[i,0]
+            Y_final[i,1] = best_mu[1]+best_sigma[0,1]/best_sigma[0,0]*(Y_final[i,0]-best_mu[0])
     return Y_final
