@@ -116,7 +116,7 @@ def SLR_fill(Y):
 def initEM(Y):
     Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
     mu1, mu2 = np.mean(Y[:,0]), np.mean(Y_obs[:,1])
-    s1, s2, s12 = np.mean(Y[:,0]**2)-mu1**2, np.mean(Y_obs[:,1])-mu2**2, np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2
+    s1, s2, s12 = np.mean(Y[:,0]**2)-mu1**2, np.mean(Y_obs[:,1]**2)-mu2**2, np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2
     return np.array([mu1, mu2]), np.array([[s1, s12], [s12, s2]])
 
 def Estep(Y,mu,Sigma):
@@ -144,15 +144,15 @@ def L(Y):
     mu1, mu2 = np.mean(Y[:,0]), np.mean(Y[:,1])
     sigma11, sigma12, sigma22 = np.var(Y[:,0]), np.mean(Y[:,0]*Y[:,1])-mu1*mu2, np.var(Y[:,1]) 
     n, r = len(Y), len(Y)
-    first, third = -(n/2)*np.log(sigma11**2), -(r/2)*np.log((sigma22-sigma12*sigma12/sigma11)**2)
+    first, third = -(n/2)*np.log(sigma11**2), -(r/2)*np.log(sigma22-sigma12*sigma12/sigma11)
     second = sum([(-1/2)*((Y[i,0]-mu1)**2)/(sigma11**2) for i in range(n)])
-    fourth = sum([(-1/2)*((Y[i,0]-mu1-(sigma12/sigma11)*(Y[i,0]-mu1))**2)/((sigma22-sigma12*sigma12/sigma11)**2) for i in range(r)])
+    fourth = sum([(-1/2)*((Y[i,0]-mu1-(sigma12/sigma11)*(Y[i,0]-mu1))**2)/(sigma22-sigma12*sigma12/sigma11) for i in range(r)])
     return first+second+third+fourth
 
 # Расчет вариационной нижней границы
 def VLB(Y, Sigma, K):
     r = np.corrcoef(Y[:,0], Y[:,1])[0][1]
-    return (0.5+L(Y)+np.log(np.sqrt(2*np.pi)*np.sqrt(1-r*r)*Sigma[1,1]+1e-10))*K
+    return (0.5+L(Y)+np.log(np.sqrt(2*np.pi)*np.sqrt(1-r*r)*np.sqrt(Sigma[1,1])+1e-10))*K
 
 # Генерация начальных сулчайных значений параметров
 def rand_params(Y):
