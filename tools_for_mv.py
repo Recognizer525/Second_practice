@@ -27,11 +27,11 @@ def plot_maker(X1, Y1, X2, Y2, title):
 # Гауссовский шум, нужен для Stochastic regression imputation
 def gaussian_noise(x, mu=0, std=None, random_state=8):
     if type(x)==np.float64 or type(x)==float:
-        rs = np.random.RandomState(random_state)
+        rs = np.random.default_rng(random_state)
         noise = rs.normal(mu, std, size=1)
         return x + noise
     if type(x)==np.ndarray:
-        rs = np.random.RandomState(random_state)
+        rs = np.random.default_rng(random_state)
         noise = rs.normal(mu, std, size=x.shape)
         return x + noise
 
@@ -48,7 +48,7 @@ def the_sample(X,n):
 def MCAR(arr, size_mv, random_state=8):
     a = deepcopy(arr)
     h = [1]*size_mv+[0]*(len(arr)-size_mv)
-    rs = np.random.RandomState(random_state)
+    rs = np.random.default_rng(random_state)
     rs.shuffle(h)
     for i in range(len(a)):
         if h[i] == 1:
@@ -112,71 +112,89 @@ def slr_fill(Y):
             Y_[i,1] = gaussian_noise(reg.coef_*Y_[i,0]+reg.intercept_, mu=0, std=sigma)
     return Y_
 
-def Estep(Y,mu,Sigma):
-    sigma_22_1 = Sigma[1,1]-(Sigma[0,1]**2)/Sigma[0,0]
+def e_step(Y,mu,sigma):
+    cond_sigma = sigma[1,1]-(sigma[0,1]**2)/sigma[0,0]
     E_y2 = np.zeros(len(Y))
     for i in range(len(Y)):
         if np.isnan(Y[i,1])==True:
-            E_y2[i] = mu[1]-mu[0]*Sigma[0,1]/Sigma[0,0]+Sigma[0,1]/Sigma[0,0]*Y[i,0]
+            E_y2[i] = mu[1]-mu[0]*sigma[0,1]/sigma[0,0]+sigma[0,1]/sigma[0,0]*Y[i,0]
         else:
-            E_y2[i] = Y[i,1]
+            E_y2[i] = Y[i,1].copy()
     E_y1 = Y[:,0].copy()
     E_y2_y2 = np.zeros(len(Y))
     for i in range(len(E_y2)):
-        E_y2_y2[i] = E_y2[i]**2+sigma_22_1*np.isnan(Y[i,1])
+        E_y2_y2[i] = E_y2[i]**2+cond_sigma*np.isnan(Y[i,1])
     E_y1_y1, E_y1_y2 = Y[:,0]**2, E_y2*E_y1
-    return sum(E_y1), sum(E_y2), sum(E_y1_y1), sum(E_y1_y2), sum(E_y2_y2)
+    return np.vstack((Y[:,0],E_y2)).T, sum(E_y1), sum(E_y2), sum(E_y1_y1), sum(E_y1_y2), sum(E_y2_y2)
 
-def Mstep(Y, s1, s2, s11, s12, s22):
+def m_step(Y, s1, s2, s11, s12, s22):
     mu1, mu2 = s1/len(Y), s2/len(Y)
     sigma1, sigma2, sigma12 = s11/len(Y)-mu1**2, s22/len(Y)-mu2**2, s12/len(Y)-mu1*mu2
     return np.array([mu1, mu2]), np.array([[sigma1, sigma12], [sigma12, sigma2]])
 
 # Значение правдоподобия
-def L(Y): 
-    Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
-    mu1, mu2 = np.mean(Y[:,0]), np.mean(Y_obs[:,1])
-    sigma11, sigma12, sigma22 = np.var(Y[:,0]), np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2, np.var(Y_obs[:,1]) 
-    n, r = len(Y), len(Y_obs)
-    first, third = -(n/2)*np.log(sigma11**2), -(r/2)*np.log(sigma22-sigma12*sigma12/sigma11+1e-10)
-    second = sum([(-1/2)*((Y[i,0]-mu1)**2)/(sigma11**2+1e-10) for i in range(n)])
-    fourth = sum([(-1/2)*((Y[i,0]-mu1-(sigma12/sigma11)*(Y[i,0]-mu1))**2)/(sigma22-sigma12*sigma12/sigma11+1e-10) for i in range(r)])
+def likelihood(Y): 
+    mu1, mu2 = np.mean(Y[:,0]), np.mean(Y[:,1])
+    sigma11, sigma12, sigma22 = np.var(Y[:,0]), np.mean(Y[:,0]*Y[:,1])-mu1*mu2, np.var(Y[:,1]) 
+    n, r = len(Y), len(Y)
+    first, third = -(n/2)*np.log(sigma11**2), -(r/2)*np.log(sigma22-sigma12*sigma12/sigma11)
+    second = sum([(-1/2)*((Y[i,0]-mu1)**2)/(sigma11**2) for i in range(n)])
+    fourth = sum([(-1/2)*((Y[i,0]-mu1-(sigma12/sigma11)*(Y[i,0]-mu1))**2)/(sigma22-sigma12*sigma12/sigma11) for i in range(r)])
     return first+second+third+fourth
 
 # Расчет вариационной нижней границы
-def VLB(Y, Sigma):
-    Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
-    r = Sigma[0][1]/(np.sqrt(Sigma[1][1]*Sigma[0][0]))
-    return (0.5+L(Y)+np.log(np.sqrt(2*np.pi)*np.sqrt(1-r*r)*np.sqrt(Sigma[1,1])+1e-10))*(len(Y)-len(Y_obs))
+def vlb_computing(Y, sigma, K):
+    r = sigma[0][1]/(np.sqrt(sigma[1][1]*sigma[0][0])+1e-10)
+    print(f"L(Y)={likelihood(Y)},r={r},s1={sigma[0][0]},s12={sigma[0][1]},s2={sigma[1][1]}")
+    return (0.5+likelihood(Y)+np.log(np.sqrt(2*np.pi)*np.sqrt(1-r*r)*np.sqrt(sigma[1,1])+1e-10))*K
 
+# Генерация начальных сулчайных значений параметров
 def rand_params(Y):
     Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
     k = np.random.uniform(1/30,30,1)
     mu1, mu2 = np.mean(Y[:,0]), np.mean(Y_obs[:,1])
-    s1, s2, s12 = np.mean(Y[:,0]**2)-mu1**2, np.mean(Y_obs[:,1]**2)-mu2**2, np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2
-    mu, sigma = np.array([k*mu1,k*mu2]), np.array([[k*k*s1,k*k*s12],[k*k*s12,k*k*s2]])
+    s1, s2, s12 = np.abs(np.mean(Y[:,0]**2)-mu1**2), np.abs(np.mean(Y_obs[:,1]**2)-mu2**2), np.abs(np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2)
+    print(s1,s2,s12)
+    mu, sigma = k*np.array([mu1,mu2]), k*k*np.array([[s1,s12],[s12,s2]])
     return mu, sigma
 
-def EM(Y, rtol=1e-3, max_iter=5, restarts=3):
+def rand_theta(Y):
+    Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
+    flag=False
+    while flag!=True:
+        k = np.random.uniform(1/30,30,1)
+        mu1, mu2 = np.mean(Y[:,0]), np.mean(Y_obs[:,1])
+        s1, s2, s12 = np.mean(Y[:,0]**2)-mu1**2, np.mean(Y_obs[:,1]**2)-mu2**2, np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2
+        print(f"{np.abs(s12/(np.sqrt(s1*s2)))}")
+        if np.abs(s12/(np.sqrt(s1*s2)))<=1: 
+            flag=True
+            mu, sigma = k*np.array([mu1,mu2]), k*k*np.array([[s1,s12],[s12,s2]])      
+    return mu, sigma
+
+def em(Y, rtol=1e-3, max_iter=10, restarts=3):
+    Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
+    K = len(Y_obs)
     Y_ = deepcopy(Y)
+    print(f"First Equality={np.array_equal(Y,Y_, equal_nan=True)}")
     best_loss, best_mu, best_sigma, loss_prev = None, None, None, None  
-    for _ in range(restarts):
+    for i in range(restarts):
         loss, curr_rel_loss = None, None
+        print(f"Equality={np.array_equal(Y,Y_, equal_nan=True)}")
         mu0, sigma0 = rand_params(Y_)  
-        for i in range(max_iter):
+        for j in range(max_iter):
             mu, sigma = mu0, sigma0
-            s1, s2, s11, s12, s22 = Estep(Y_, mu, sigma)
-            mu, sigma  = Mstep(Y_, s1, s2, s11, s12, s22)
-            loss = VLB(Y_, sigma)
+            Y_modified, s1, s2, s11, s12, s22 = e_step(Y_, mu, sigma)
+            mu, sigma  = m_step(Y_, s1, s2, s11, s12, s22)
+            loss = vlb_computing(Y_modified, sigma, K)
             sigma0, mu0 = sigma, mu
             if loss_prev != None:
                 curr_rel_loss = np.abs(loss_prev - loss)/np.abs(loss_prev)
                 loss_prev = loss
             else:
                 loss_prev = loss
-            print(f'Step: {i} ', f'Loss {loss:.2f}\n')
+            print(f'Step: {j} ', f'Loss {loss:.2f}\n')
             if curr_rel_loss!=None and curr_rel_loss < rtol:
-                break           
+                break    
         if best_loss!=None:
             if loss>best_loss:
                 best_loss, best_mu, best_sigma = loss, mu, sigma
