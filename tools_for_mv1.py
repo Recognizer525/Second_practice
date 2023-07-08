@@ -112,6 +112,7 @@ def slr_fill(Y):
             Y_[i,1] = gaussian_noise(reg.coef_*Y_[i,0]+reg.intercept_, mu=0, std=sigma)
     return Y_
 
+# E-шаг
 def e_step(Y,mu,sigma):
     cond_sigma = sigma[1]-(sigma[2]**2)/sigma[0]
     E_y2 = np.zeros(len(Y))
@@ -127,6 +128,7 @@ def e_step(Y,mu,sigma):
     E_y1_y1, E_y1_y2 = Y[:,0]**2, E_y2*E_y1
     return np.vstack((Y[:,0],E_y2)).T, sum(E_y1), sum(E_y2), sum(E_y1_y1), sum(E_y1_y2), sum(E_y2_y2)
 
+# M-шаг
 def m_step(Y, s1, s2, s11, s12, s22):
     mu1, mu2 = s1/len(Y), s2/len(Y)
     sigma1, sigma2, sigma12 = s11/len(Y)-mu1**2, s22/len(Y)-mu2**2, s12/len(Y)-mu1*mu2
@@ -145,31 +147,22 @@ def likelihood(Y):
 # Расчет вариационной нижней границы
 def vlb_computing(Y, sigma, K):
     r = sigma[2]/(np.sqrt(sigma[1]*sigma[0])+1e-10)
-    print(f"L(Y)={likelihood(Y)},r={r},s1={sigma[0]},s12={sigma[2]},s2={sigma[1]}")
+    print(f"likelihood(Y)={likelihood(Y)},r={r},s1={sigma[0]},s12={sigma[2]},s2={sigma[1]}")
     return (0.5+likelihood(Y)+np.log(np.sqrt(2*np.pi)*np.sqrt(1-r*r)*np.sqrt(sigma[1])+1e-10))*K
 
-# Генерация начальных сулчайных значений параметров
-def rand_theta(mu,sigma):
-    flag=False
-    while flag!=True:
-        k = np.random.uniform(1/30,30,1)
-        print(f"{np.abs(sigma[2]/(np.sqrt(sigma[0]*sigma[1])))}")
-        if np.abs(sigma[2]/(np.sqrt(sigma[0]*sigma[1])))<=1: 
-            flag=True
-            f_mu, f_sigma = k*mu, k**2*sigma    
-    return mu, sigma
-
-def em(Y, rtol=1e-3, max_iter=10, restarts=3):
+# EM-алгоритм
+def em(Y, rtol=1e-3, max_iter=10, restarts=3, random_state=42):
     Y_obs = np.delete(Y, [np.any(i) for i in np.isnan(Y)], axis=0)
     K = len(Y_obs)
     Y_ = deepcopy(Y)
+    rs = np.random.default_rng(random_state)
+    k = np.array(rs.uniform(1/30,30,restarts))
     best_loss, best_mu, best_sigma, loss_prev = None, None, None, None  
     for i in range(restarts):
         loss, curr_rel_loss = None, None
-        print(f"Equality={np.array_equal(Y,Y_, equal_nan=True)}")
         mu1, mu2 = np.mean(Y_[:,0]), np.mean(Y_obs[:,1])
         sigma1, sigma2, sigma12 = np.mean(Y_[:,0]**2)-mu1**2, np.mean(Y_obs[:,1]**2)-mu2**2, np.mean(Y_obs[:,0]*Y_obs[:,1])-mu1*mu2
-        mu0, sigma0 = rand_theta(np.array([mu1,mu2]), np.array([sigma1,sigma2,sigma12]) 
+        mu0, sigma0 = k[i]*np.array([mu1,mu2]), k[i]**2*np.array([sigma1,sigma2,sigma12])
         for j in range(max_iter):
             mu, sigma = mu0, sigma0
             Y_modified, s1, s2, s11, s12, s22 = e_step(Y_, mu, sigma)
